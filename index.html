@@ -1,0 +1,2402 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AlcoSense AI — Smart BAC Tracker & Drink Scanner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script>
+        if (window.tailwind) {
+            tailwind.config = {
+                darkMode: 'class',
+                theme: {
+                    extend: {
+                        fontFamily: {
+                            sans: ['Inter', 'sans-serif'],
+                            mono: ['JetBrains Mono', 'monospace'],
+                        },
+                        colors: {
+                            slate: {
+                                850: '#151e2e',
+                                900: '#0f172a',
+                                950: '#090d16',
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Fallback base styling in case external CDN is slow/offline */
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+            background-color: #090d16;
+            color: #f8fafc;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+        .gauge-arc {
+            transition: stroke-dashoffset 0.7s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.5s ease;
+        }
+        @keyframes scanLine {
+            0% { transform: translateY(0%); opacity: 0.8; }
+            50% { transform: translateY(100%); opacity: 1; }
+            100% { transform: translateY(0%); opacity: 0.8; }
+        }
+        .animate-scan {
+            animation: scanLine 2.2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased selection:bg-amber-500 selection:text-slate-950">
+
+    <!-- Toast Notification Banner (Replaces alert()) -->
+    <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-md pointer-events-none flex flex-col gap-2"></div>
+
+    <!-- Custom Confirmation Modal (Replaces confirm()) -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+            <h3 id="confirm-title" class="text-lg font-bold text-white mb-2">Confirm Action</h3>
+            <p id="confirm-message" class="text-sm text-slate-400 mb-6">Are you sure you want to proceed?</p>
+            <div class="flex gap-3 justify-end">
+                <button id="confirm-cancel-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition">Cancel</button>
+                <button id="confirm-ok-btn" class="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold transition">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Authentication & Cloud Sync Modal -->
+    <div id="auth-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl my-auto">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                        <svg class="w-5 h-5 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-extrabold text-white">AlcoSense Account</h2>
+                        <p class="text-[11px] text-slate-400">Sync your BAC profile & drink history</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeAuthModal()" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Simple Cloud Sync Status Indicator -->
+            <div class="mb-4 p-3 rounded-2xl bg-slate-950/90 border border-slate-800 flex items-center gap-2">
+                <span id="auth-fb-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                <span id="auth-fb-text" class="text-[11px] font-medium text-emerald-400 truncate">Cloud Sync Active</span>
+            </div>
+
+            <!-- Sign In / Sign Up Mode Toggle -->
+            <div class="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-2xl border border-slate-800 mb-4">
+                <button type="button" id="auth-mode-login" onclick="setAuthMode('login')" class="py-2 rounded-xl text-xs font-bold bg-amber-500 text-slate-950 transition">Log In</button>
+                <button type="button" id="auth-mode-signup" onclick="setAuthMode('signup')" class="py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition">Create Account</button>
+            </div>
+
+            <!-- Username & Password Form -->
+            <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-3.5">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Username</label>
+                    <input type="text" id="auth-username" required minlength="3" maxlength="24" autocomplete="username" placeholder="e.g. alex_99" oninput="clearAuthError()"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-amber-500 transition">
+                    <p class="text-[10px] text-slate-500 mt-1">Letters, numbers, and underscores only.</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
+                    <div class="relative">
+                        <input type="password" id="auth-password" required minlength="6" autocomplete="current-password" placeholder="Minimum 6 characters" oninput="clearAuthError()"
+                            class="w-full pl-3.5 pr-11 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-amber-500 transition">
+                        <button type="button" id="auth-toggle-pw-btn" onclick="toggleAuthPasswordVisibility()" aria-label="Show password"
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition">
+                            <!-- Eye Icon (Show) -->
+                            <svg id="auth-eye-open" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <!-- Eye Off Icon (Hide) -->
+                            <svg id="auth-eye-closed" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Prominent Inline Warning Banner -->
+                <div id="auth-error-box" class="hidden flex items-start gap-2.5 text-xs text-rose-200 bg-rose-500/15 border border-rose-500/50 rounded-xl p-3 shadow-sm">
+                    <svg class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                    <div class="flex-1">
+                        <p id="auth-error-title" class="font-bold text-rose-300">Authentication Warning</p>
+                        <p id="auth-error-msg" class="text-rose-200/90 mt-0.5 leading-relaxed"></p>
+                    </div>
+                </div>
+
+                <button type="submit" id="auth-submit-btn" class="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-500/20 transition">
+                    Log In to Cloud Sync
+                </button>
+            </form>
+
+            <div class="relative my-4 flex items-center justify-center">
+                <div class="border-t border-slate-800 w-full"></div>
+                <span class="bg-slate-900 px-3 text-[11px] text-slate-500 uppercase tracking-wider">or</span>
+                <div class="border-t border-slate-800 w-full"></div>
+            </div>
+
+            <button type="button" onclick="continueAsGuest()" class="w-full py-2.5 px-4 rounded-2xl bg-slate-800/90 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold transition">
+                Continue Locally (No Account Needed)
+            </button>
+        </div>
+    </div>
+
+    <!-- Top Header -->
+    <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-3.5">
+        <div class="max-w-lg mx-auto flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+                    <svg class="w-5 h-5 text-slate-950" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="text-base font-extrabold tracking-tight text-white leading-tight truncate">AlcoSense <span class="text-amber-400">AI</span></h1>
+                    <p id="header-sync-subtitle" class="text-[11px] text-slate-400 font-medium truncate">Local Mode</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="switchTab('profile')" id="header-profile-badge" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs font-medium text-slate-300 transition">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400" id="profile-dot"></span>
+                    <span id="header-profile-text">Profile</span>
+                </button>
+                <button onclick="handleAccountButtonClick()" id="header-account-btn" class="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-xs font-bold text-amber-300 transition">
+                    <span id="header-account-label">Log In</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 w-full max-w-lg mx-auto px-4 pt-5 pb-28">
+
+        <!-- ========================================== -->
+        <!-- TAB 1: DASHBOARD (REAL-TIME BAC & STATUS)  -->
+        <!-- ========================================== -->
+        <section id="tab-dashboard" class="space-y-5">
+
+            <!-- Profile Warning Banner (Shown if user hasn't customized profile) -->
+            <div id="profile-alert-banner" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-between gap-3">
+                <div class="flex items-start gap-3">
+                    <span class="text-amber-400 text-lg mt-0.5">⚠️</span>
+                    <div>
+                        <p class="text-xs font-bold text-amber-300">Default Body Metrics Active</p>
+                        <p class="text-xs text-amber-200/80 mt-0.5">Set your weight & biological sex for accurate Widmark BAC calculations.</p>
+                    </div>
+                </div>
+                <button onclick="switchTab('profile')" class="shrink-0 px-3 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition">
+                    Set Now
+                </button>
+            </div>
+
+            <!-- Main BAC Gauge Card -->
+            <div class="bg-slate-900 border border-slate-800/90 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Estimated Current BAC</span>
+                    <span id="live-clock" class="text-xs font-mono text-slate-400">--:--</span>
+                </div>
+
+                <!-- Circular SVG Gauge -->
+                <div class="relative flex flex-col items-center justify-center my-3">
+                    <svg class="w-56 h-36 overflow-visible" viewBox="0 0 220 130">
+                        <!-- Background Arc -->
+                        <path d="M 20 115 A 90 90 0 0 1 200 115" fill="none" stroke="#1e293b" stroke-width="16" stroke-linecap="round"/>
+                        <!-- Active Progress Arc -->
+                        <path id="bac-gauge-arc" class="gauge-arc" d="M 20 115 A 90 90 0 0 1 200 115" fill="none" stroke="#10b981" stroke-width="16" stroke-linecap="round" stroke-dasharray="282.74" stroke-dashoffset="282.74"/>
+                    </svg>
+                    <div class="absolute bottom-2 flex flex-col items-center text-center">
+                        <div class="flex items-baseline gap-0.5">
+                            <span id="bac-value-display" class="text-4xl sm:text-5xl font-extrabold font-mono tracking-tight text-white">0.000</span>
+                            <span class="text-base font-bold text-slate-400">%</span>
+                        </div>
+                        <span id="bac-status-pill" class="mt-2 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            Sober / Clear
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Status Description -->
+                <p id="bac-status-desc" class="text-center text-xs text-slate-400 max-w-xs mx-auto mt-1 leading-relaxed">
+                    No active alcohol detected in your system based on logged drinks.
+                </p>
+
+                <!-- Countdown Timers Grid -->
+                <div class="grid grid-cols-2 gap-3 mt-5 pt-5 border-t border-slate-800/80">
+                    <div class="bg-slate-950/70 rounded-2xl p-3.5 border border-slate-800/60">
+                        <span class="text-[11px] font-medium text-slate-400 block">Below 0.05% Limit</span>
+                        <span id="timer-under-05" class="text-base font-bold font-mono text-slate-100 mt-1 block">Now</span>
+                        <span id="eta-under-05" class="text-[10px] text-slate-500 block mt-0.5">Legal threshold reference</span>
+                    </div>
+                    <div class="bg-slate-950/70 rounded-2xl p-3.5 border border-slate-800/60">
+                        <span class="text-[11px] font-medium text-slate-400 block">Time to 0.00% (Sober)</span>
+                        <span id="timer-sober" class="text-base font-bold font-mono text-amber-400 mt-1 block">0h 00m</span>
+                        <span id="eta-sober" class="text-[10px] text-slate-500 block mt-0.5">Complete elimination</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Action Buttons -->
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="switchTab('scan')" class="flex items-center justify-center gap-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-4 px-4 rounded-2xl shadow-lg shadow-amber-500/15 active:scale-[0.98] transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                    </svg>
+                    <span class="text-sm">AI Photo Scan</span>
+                </button>
+                <button onclick="switchTab('scan', true)" class="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-100 font-semibold py-4 px-4 rounded-2xl active:scale-[0.98] transition">
+                    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    <span class="text-sm">Quick Log</span>
+                </button>
+            </div>
+
+            <!-- Active Session Drinks (Last 24 Hours) -->
+            <div class="bg-slate-900 border border-slate-800/90 rounded-3xl p-5">
+                <div class="flex items-center justify-between mb-3.5">
+                    <div>
+                        <h2 class="text-sm font-bold text-white">Active Session (Last 24h)</h2>
+                        <p class="text-xs text-slate-400" id="active-session-summary">0 drinks • 0.0g pure alcohol</p>
+                    </div>
+                    <button onclick="switchTab('history')" class="text-xs font-semibold text-amber-400 hover:text-amber-300">View All →</button>
+                </div>
+                <div id="recent-drinks-list" class="space-y-2.5">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+
+            <!-- Friends-Only Leaderboard Card -->
+            <div class="bg-slate-900 border border-slate-800/90 rounded-3xl p-5 space-y-3.5">
+                <div class="flex items-center justify-between gap-2">
+                    <div>
+                        <h2 class="text-sm font-bold text-white">Friends Leaderboard</h2>
+                        <p class="text-[11px] text-slate-400">Only shows friends you add by @username</p>
+                    </div>
+                    <div class="flex bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-[10px] font-bold">
+                        <button type="button" id="lb-mode-bac" onclick="setLeaderboardMetric('bac')" class="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 transition">Live BAC</button>
+                        <button type="button" id="lb-mode-drinks" onclick="setLeaderboardMetric('drinks')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition">7d Drinks</button>
+                    </div>
+                </div>
+
+                <!-- Add Friend by Username Input -->
+                <form onsubmit="handleAddFriend(event)" class="flex gap-2">
+                    <input type="text" id="friend-username-input" required minlength="3" maxlength="24" placeholder="Add friend @username..."
+                        class="flex-1 min-w-0 px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-amber-500 transition">
+                    <button type="submit" id="add-friend-btn" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 transition">
+                        + Add
+                    </button>
+                    <button type="button" onclick="refreshFriendsLeaderboard(true)" title="Refresh friends" class="px-2.5 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold shrink-0 transition">
+                        ↻
+                    </button>
+                </form>
+
+                <!-- Mutual Visibility Tip & Copy Own Handle -->
+                <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800/70 text-[11px]">
+                    <span class="text-slate-400 truncate" id="lb-my-handle-text">Sign in to share your @username</span>
+                    <button type="button" id="lb-copy-handle-btn" onclick="copyMyUsername()" class="hidden shrink-0 font-bold text-amber-400 hover:text-amber-300">
+                        Copy
+                    </button>
+                </div>
+
+                <!-- Leaderboard Rows -->
+                <div id="friends-leaderboard-list" class="space-y-2">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+
+            <!-- Medical & Legal Disclaimer -->
+            <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4">
+                <p class="text-[11px] text-slate-400 leading-relaxed">
+                    <strong class="text-slate-300">Disclaimer:</strong> Blood Alcohol Content (BAC) values are mathematical estimates based on the Widmark formula and standard elimination rates (~0.015%/hr). Individual metabolism, food intake, hydration, medications, and genetics significantly affect actual BAC. <span class="text-rose-400 font-semibold">Never drive after drinking.</span> This tool is not a substitute for a certified breathalyzer or legal/medical advice.
+                </p>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 2: AI PHOTO SCANNER & DRINK LOGGER     -->
+        <!-- ========================================== -->
+        <section id="tab-scan" class="hidden space-y-5">
+
+            <!-- AI Camera / Image Upload Card -->
+            <div class="bg-slate-900 border border-slate-800/90 rounded-3xl p-5 shadow-xl">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-white flex items-center gap-2">
+                            <span>AI Beverage Scanner</span>
+                            <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">Gemini Vision</span>
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Snap a beer bottle, can, wine glass, or cocktail to auto-detect volume & ABV.</p>
+                    </div>
+                </div>
+
+                <!-- File Input (Supports mobile camera directly + gallery) -->
+                <input type="file" id="drink-image-input" accept="image/*" capture="environment" class="hidden" onchange="handleImageUpload(event)">
+
+                <!-- Upload Dropzone / Preview Box -->
+                <div id="scanner-dropzone" onclick="document.getElementById('drink-image-input').click()" class="mt-3 border-2 border-dashed border-slate-700 hover:border-amber-500/70 bg-slate-950/60 rounded-2xl p-6 text-center cursor-pointer transition relative overflow-hidden group">
+                    <div id="scanner-placeholder" class="py-4 flex flex-col items-center">
+                        <div class="w-14 h-14 rounded-2xl bg-amber-500/15 text-amber-400 flex items-center justify-center mb-3 group-hover:scale-105 transition">
+                            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                            </svg>
+                        </div>
+                        <p class="text-sm font-bold text-white">Tap to Take Photo or Upload</p>
+                        <p class="text-xs text-slate-400 mt-1">Works with bottles, cans, pints, wine & cocktails</p>
+                    </div>
+
+                    <!-- Preview Image & Scanning Overlay -->
+                    <div id="scanner-preview-wrapper" class="hidden relative rounded-xl overflow-hidden max-h-64 flex items-center justify-center bg-black">
+                        <img id="scanner-preview-img" src="" alt="Drink preview" class="max-h-64 w-auto object-contain mx-auto">
+                        <!-- Scanning Laser Effect -->
+                        <div id="scanner-loading-overlay" class="hidden absolute inset-0 bg-slate-950/75 backdrop-blur-[2px] flex flex-col items-center justify-center p-4">
+                            <div class="w-full h-1 bg-gradient-to-r from-transparent via-amber-400 to-transparent absolute top-0 left-0 animate-scan"></div>
+                            <div class="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-3"></div>
+                            <p class="text-sm font-bold text-amber-300">Analyzing Beverage with AI...</p>
+                            <p class="text-xs text-slate-300 mt-1">Estimating brand, container size & ABV%</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Result Banner -->
+                <div id="ai-result-banner" class="hidden mt-3 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                    <div class="flex items-start gap-2.5">
+                        <span class="text-emerald-400 text-base">✨</span>
+                        <div class="flex-1">
+                            <p class="text-xs font-bold text-emerald-300" id="ai-confidence-title">AI Detected Beverage</p>
+                            <p class="text-xs text-slate-300 mt-0.5" id="ai-reasoning-text">Review or tweak values below before adding to your log.</p>
+                        </div>
+                        <button type="button" onclick="resetScanner()" class="text-xs text-slate-400 hover:text-white underline">Clear</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Presets Horizontal Strip -->
+            <div>
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Quick Presets</span>
+                    <span class="text-[11px] text-slate-500">Tap to fill form</span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <button type="button" onclick="applyPreset('Regular Beer', 330, 5.0, '🍺')" class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left transition">
+                        <span class="text-lg">🍺</span>
+                        <div class="overflow-hidden">
+                            <p class="text-xs font-bold text-slate-200 truncate">Beer (330ml)</p>
+                            <p class="text-[10px] text-slate-400">330ml • 5.0%</p>
+                        </div>
+                    </button>
+                    <button type="button" onclick="applyPreset('Red Horse / Strong Beer', 500, 6.9, '🐎')" class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left transition">
+                        <span class="text-lg">🐎</span>
+                        <div class="overflow-hidden">
+                            <p class="text-xs font-bold text-slate-200 truncate">Strong Beer</p>
+                            <p class="text-[10px] text-slate-400">500ml • 6.9%</p>
+                        </div>
+                    </button>
+                    <button type="button" onclick="applyPreset('Pint Craft IPA', 473, 6.5, '🍻')" class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left transition">
+                        <span class="text-lg">🍻</span>
+                        <div class="overflow-hidden">
+                            <p class="text-xs font-bold text-slate-200 truncate">IPA Pint</p>
+                            <p class="text-[10px] text-slate-400">473ml • 6.5%</p>
+                        </div>
+                    </button>
+                    <button type="button" onclick="applyPreset('Glass of Wine', 150, 12.5, '🍷')" class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left transition">
+                        <span class="text-lg">🍷</span>
+                        <div class="overflow-hidden">
+                            <p class="text-xs font-bold text-slate-200 truncate">Wine Glass</p>
+                            <p class="text-[10px] text-slate-400">150ml • 12.5%</p>
+                        </div>
+                    </button>
+                    <button type="button" onclick="applyPreset('Liquor Shot', 45, 40.0, '🥃')" class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left transition">
+                        <span class="text-lg">🥃</span>
+                        <div class="overflow-hidden">
+                            <p class="text-xs font-bold text-slate-200 truncate">Shot (1.5oz)</p>
+                            <p class="text-[10px] text-slate-400">45ml • 40.0%</p>
+                        </div>
+                    </button>
+                    <button type="button" onclick="applyPreset('Cocktail / Mixed', 250, 14.0, '🍸')" class="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-left transition">
+                        <span class="text-lg">🍸</span>
+                        <div class="overflow-hidden">
+                            <p class="text-xs font-bold text-slate-200 truncate">Cocktail</p>
+                            <p class="text-[10px] text-slate-400">250ml • 14.0%</p>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Drink Details & Manual Form -->
+            <form id="log-drink-form" onsubmit="handleLogDrink(event)" class="bg-slate-900 border border-slate-800/90 rounded-3xl p-5 space-y-4">
+                <h3 class="text-sm font-bold text-white">Drink Details</h3>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1.5">Drink Name</label>
+                    <input type="text" id="drink-name" required placeholder="e.g. San Miguel Pale Pilsen, Margarita..." value="Beer"
+                        class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-amber-500 transition">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label class="text-xs font-medium text-slate-400">Volume</label>
+                            <div class="flex bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-[10px] font-bold">
+                                <button type="button" id="vol-unit-ml" onclick="setVolumeUnit('ml')" class="px-2 py-0.5 rounded bg-amber-500 text-slate-950">ml</button>
+                                <button type="button" id="vol-unit-oz" onclick="setVolumeUnit('oz')" class="px-2 py-0.5 rounded text-slate-400">oz</button>
+                            </div>
+                        </div>
+                        <input type="number" id="drink-volume" step="any" min="1" max="5000" required value="330" oninput="updateLiveDrinkPreview()"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1.5">Alcohol % (ABV)</label>
+                        <input type="number" id="drink-abv" step="0.1" min="0.1" max="100" required value="5.0" oninput="updateLiveDrinkPreview()"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1.5">Quantity</label>
+                        <input type="number" id="drink-qty" min="1" max="20" step="1" required value="1" oninput="updateLiveDrinkPreview()"
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1.5">Time Consumed</label>
+                        <input type="datetime-local" id="drink-time" required
+                            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+                </div>
+
+                <!-- Live Calculation Preview Box -->
+                <div class="bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] text-slate-400 block">Pure Alcohol & Standard Drinks</span>
+                        <span id="preview-alcohol-stats" class="text-xs font-bold text-slate-200 mt-0.5 block">13.0g pure alcohol • 0.93 std drinks</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[11px] text-slate-400 block">Est. Peak Impact</span>
+                        <span id="preview-bac-impact" class="text-sm font-extrabold font-mono text-amber-400 mt-0.5 block">+0.027%</span>
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-500/20 active:scale-[0.99] transition">
+                    + Log Drink to Tracker
+                </button>
+            </form>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 3: MULTI-WEEK HISTORY & ANALYTICS      -->
+        <!-- ========================================== -->
+        <section id="tab-history" class="hidden space-y-5">
+
+            <!-- Time Range Filter -->
+            <div class="flex items-center justify-between bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
+                <button onclick="setHistoryRange(7)" id="range-btn-7" class="flex-1 py-2 rounded-xl text-xs font-bold bg-amber-500 text-slate-950 transition">7 Days</button>
+                <button onclick="setHistoryRange(14)" id="range-btn-14" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition">14 Days</button>
+                <button onclick="setHistoryRange(28)" id="range-btn-28" class="flex-1 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition">4 Weeks</button>
+            </div>
+
+            <!-- Summary Stats Cards -->
+            <div class="grid grid-cols-3 gap-2.5">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+                    <span class="text-[11px] text-slate-400 block">This Week</span>
+                    <span id="stat-drinks-7d" class="text-xl font-extrabold font-mono text-white mt-1 block">0</span>
+                    <span class="text-[10px] text-slate-500">drinks logged</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+                    <span class="text-[11px] text-slate-400 block">Last 4 Weeks</span>
+                    <span id="stat-drinks-28d" class="text-xl font-extrabold font-mono text-amber-400 mt-1 block">0</span>
+                    <span id="stat-std-28d" class="text-[10px] text-slate-500">0.0 std drinks</span>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+                    <span class="text-[11px] text-slate-400 block">Peak Est. BAC</span>
+                    <span id="stat-peak-bac" class="text-xl font-extrabold font-mono text-rose-400 mt-1 block">0.00%</span>
+                    <span class="text-[10px] text-slate-500">in selected period</span>
+                </div>
+            </div>
+
+            <!-- Daily Drink Count Bar Chart -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="text-sm font-bold text-white">Daily Drink Frequency</h3>
+                        <p id="chart-subtitle" class="text-xs text-slate-400">Standard drinks per day (Last 7 days)</p>
+                    </div>
+                    <span id="chart-avg-label" class="text-xs font-mono font-semibold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg">Avg: 0.0/d</span>
+                </div>
+                <!-- Chart Bars Container -->
+                <div id="history-bar-chart" class="h-40 flex items-end gap-1.5 pt-6 pb-1 px-1 border-b border-slate-800">
+                    <!-- Rendered dynamically via JS -->
+                </div>
+                <div id="history-chart-labels" class="flex justify-between text-[10px] font-mono text-slate-500 mt-2 px-1">
+                    <!-- Rendered dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Full Chronological Drink Log -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-bold text-white">Drink History Log</h3>
+                    <button onclick="confirmClearAllHistory()" class="text-xs text-rose-400 hover:text-rose-300 font-medium">Clear All</button>
+                </div>
+                <div id="full-history-list" class="space-y-3">
+                    <!-- Rendered dynamically via JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 4: USER PROFILE SETUP                  -->
+        <!-- ========================================== -->
+        <section id="tab-profile" class="hidden space-y-5">
+            <div class="bg-slate-900 border border-slate-800/90 rounded-3xl p-6 shadow-xl">
+                <h2 class="text-lg font-bold text-white">Body Profile & Calibration</h2>
+                <p class="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Saved to your account or device. Used by the Widmark formula to estimate blood water volume and alcohol concentration.
+                </p>
+
+                <form id="profile-form" onsubmit="saveUserProfile(event)" class="mt-5 space-y-5">
+                    <!-- Biological Sex Selection (Widmark r-factor) -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-2">Biological Sex (Widmark Distribution Factor)</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <label class="cursor-pointer">
+                                <input type="radio" name="sex" value="male" class="peer sr-only" checked>
+                                <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition text-center">
+                                    <span class="text-xl block mb-1">♂️</span>
+                                    <span class="text-sm font-bold text-white block">Male</span>
+                                    <span class="text-[10px] text-slate-400">r = 0.68 factor</span>
+                                </div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="sex" value="female" class="peer sr-only">
+                                <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 peer-checked:border-amber-500 peer-checked:bg-amber-500/10 transition text-center">
+                                    <span class="text-xl block mb-1">♀️</span>
+                                    <span class="text-sm font-bold text-white block">Female</span>
+                                    <span class="text-[10px] text-slate-400">r = 0.55 factor</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Weight Input with kg / lbs Toggle -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="text-xs font-semibold text-slate-300">Body Weight <span class="text-rose-400">*</span></label>
+                            <div class="flex bg-slate-950 rounded-xl p-1 border border-slate-800 text-xs font-bold">
+                                <button type="button" id="weight-unit-kg" onclick="setWeightUnit('kg')" class="px-3 py-1 rounded-lg bg-amber-500 text-slate-950 transition">kg</button>
+                                <button type="button" id="weight-unit-lbs" onclick="setWeightUnit('lbs')" class="px-3 py-1 rounded-lg text-slate-400 transition">lbs</button>
+                            </div>
+                        </div>
+                        <input type="number" id="profile-weight" step="0.1" min="30" max="400" required value="70"
+                            class="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-base font-mono font-bold text-white focus:outline-none focus:border-amber-500 transition">
+                    </div>
+
+                    <!-- Age & Height Inputs -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-300 mb-2">Age (Years)</label>
+                            <input type="number" id="profile-age" min="18" max="110" placeholder="e.g. 28" value="28"
+                                class="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-sm font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-semibold text-slate-300">Height</label>
+                                <div class="flex bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-[10px] font-bold">
+                                    <button type="button" id="height-unit-cm" onclick="setHeightUnit('cm')" class="px-2 py-0.5 rounded bg-amber-500 text-slate-950">cm</button>
+                                    <button type="button" id="height-unit-ft" onclick="setHeightUnit('ft')" class="px-2 py-0.5 rounded text-slate-400">in</button>
+                                </div>
+                            </div>
+                            <input type="number" id="profile-height" step="0.5" min="40" max="250" placeholder="e.g. 175" value="175"
+                                class="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-sm font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                        </div>
+                    </div>
+
+                    <!-- Optional Watson TBW Formula Toggle -->
+                    <div class="bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-xs font-bold text-slate-200">Use Watson Body Water Refinement</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Incorporates age & height for personalized body water estimation.</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input type="checkbox" id="profile-use-watson" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-sm shadow-lg shadow-amber-500/20 active:scale-[0.99] transition">
+                        Save Profile Settings
+                    </button>
+                </form>
+            </div>
+
+            <!-- AI Scanner & Cloud Account Settings Card -->
+            <div class="bg-slate-900 border border-slate-800/90 rounded-3xl p-6 shadow-xl space-y-5">
+                <div>
+                    <h2 class="text-base font-bold text-white">Account, AI Scanner & Backup</h2>
+                    <p class="text-xs text-slate-400 mt-1">Manage your cloud sync account, personal Gemini API key for photo scanning, and JSON backups.</p>
+                </div>
+
+                <!-- Account Sync Status Box -->
+                <div class="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-bold text-white" id="settings-account-title">Not Signed In (Local Storage)</p>
+                        <p class="text-[11px] text-slate-400 mt-0.5 truncate" id="settings-account-desc">Sign in with a username & password to sync across devices.</p>
+                    </div>
+                    <button type="button" onclick="handleAccountButtonClick()" id="settings-account-btn" class="shrink-0 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                        Sign In / Up
+                    </button>
+                </div>
+
+                <!-- Gemini API Key Input -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="text-xs font-semibold text-slate-300">Gemini API Key (For Photo Scanner)</label>
+                        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="text-[11px] font-semibold text-amber-400 hover:underline">Get Free Key ↗</a>
+                    </div>
+                    <div class="flex gap-2">
+                        <div class="relative flex-1">
+                            <input type="password" id="settings-gemini-key" placeholder="AIzaSy..."
+                                class="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-white focus:outline-none focus:border-amber-500 transition">
+                            <button type="button" onclick="toggleGeminiKeyVisibility()" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-semibold">
+                                Show
+                            </button>
+                        </div>
+                        <button type="button" onclick="saveGeminiApiKey()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition shrink-0">
+                            Save Key
+                        </button>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1.5">Stored locally in your browser so your API key is never exposed in public HTML.</p>
+                </div>
+
+                <!-- JSON Backup & Restore -->
+                <div class="pt-4 border-t border-slate-800/80">
+                    <label class="block text-xs font-semibold text-slate-300 mb-2">Backup & Restore Data (JSON)</label>
+                    <div class="grid grid-cols-2 gap-2.5">
+                        <button type="button" onclick="exportDataJSON()" class="py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-semibold transition flex items-center justify-center gap-1.5">
+                            <span>Export Backup</span>
+                        </button>
+                        <label class="py-2.5 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer">
+                            <span>Import Backup</span>
+                            <input type="file" accept=".json,application/json" class="hidden" onchange="importDataJSON(event)">
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Bottom Mobile Navigation Bar -->
+    <nav class="fixed bottom-0 inset-x-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800/90 px-2 py-2 pb-safe">
+        <div class="max-w-lg mx-auto grid grid-cols-4 gap-1">
+            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn flex flex-col items-center justify-center py-2 px-1 rounded-2xl text-amber-400 bg-amber-500/10 transition">
+                <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                </svg>
+                <span class="text-[11px] font-bold">BAC Live</span>
+            </button>
+
+            <button onclick="switchTab('scan')" id="nav-scan" class="nav-btn flex flex-col items-center justify-center py-2 px-1 rounded-2xl text-slate-400 hover:text-slate-200 transition">
+                <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                </svg>
+                <span class="text-[11px] font-semibold">Scan / Log</span>
+            </button>
+
+            <button onclick="switchTab('history')" id="nav-history" class="nav-btn flex flex-col items-center justify-center py-2 px-1 rounded-2xl text-slate-400 hover:text-slate-200 transition">
+                <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+                <span class="text-[11px] font-semibold">History</span>
+            </button>
+
+            <button onclick="switchTab('profile')" id="nav-profile" class="nav-btn flex flex-col items-center justify-center py-2 px-1 rounded-2xl text-slate-400 hover:text-slate-200 transition">
+                <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+                <span class="text-[11px] font-semibold">Profile</span>
+            </button>
+        </div>
+    </nav>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import {
+            getAuth,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut,
+            onAuthStateChanged
+        } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import {
+            getFirestore,
+            doc,
+            setDoc,
+            getDocs,
+            collection,
+            query,
+            where,
+            onSnapshot
+        } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+        // =========================================================================
+        // PERMANENT HARDCODED FIREBASE CONFIGURATION
+        // =========================================================================
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyB7VOfqbdCcEMKLUQxAld7khA5oFl-2W3o",
+            authDomain: "alcosense-ddecc.firebaseapp.com",
+            projectId: "alcosense-ddecc",
+            storageBucket: "alcosense-ddecc.firebasestorage.app",
+            messagingSenderId: "364122724266",
+            appId: "1:364122724266:web:b599b6ee3aa87c045efdd3"
+        };
+
+        // =========================================================================
+        // STATE & STORAGE MANAGEMENT
+        // =========================================================================
+        const STORAGE_KEYS = {
+            PROFILE: 'alcosense_profile_v1',
+            DRINKS: 'alcosense_drinks_v1',
+            FRIENDS: 'alcosense_friends_v1',
+            GEMINI_KEY: 'alcosense_gemini_api_key_v1',
+            GUEST_DISMISSED: 'alcosense_guest_mode_v1'
+        };
+
+        const ELIMINATION_RATE_PER_HOUR = 0.015; // Standard Widmark elimination rate (% BAC/hr)
+        const ETHANOL_DENSITY = 0.789; // g/ml
+        const STANDARD_DRINK_GRAMS = 14.0; // US standard drink = 14g pure alcohol
+
+        let appState = {
+            profile: {
+                sex: 'male',
+                weight: 70,
+                weightUnit: 'kg',
+                age: 28,
+                height: 175,
+                heightUnit: 'cm',
+                useWatson: true,
+                isConfigured: false
+            },
+            drinks: [],
+            friends: [], // Array of added friend usernames (lowercase)
+            friendProfiles: {}, // { username: { username, profile, drinks } }
+            leaderboardMetric: 'bac', // 'bac' | 'drinks'
+            volumeUnit: 'ml',
+            currentIcon: '🍺',
+            currentThumbnail: null,
+            historyRangeDays: 7,
+            geminiApiKey: '',
+            user: null, // { uid, username }
+            authMode: 'login',
+            firebaseReady: false
+        };
+
+        let fbApp = null;
+        let fbAuth = null;
+        let fbDb = null;
+        let unsubscribeUserDoc = null;
+        let isApplyingRemoteSnapshot = false;
+
+        // Load saved data from localStorage
+        function loadState() {
+            try {
+                const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
+                if (savedProfile) {
+                    appState.profile = { ...appState.profile, ...JSON.parse(savedProfile) };
+                }
+                const savedDrinks = localStorage.getItem(STORAGE_KEYS.DRINKS);
+                if (savedDrinks) {
+                    appState.drinks = JSON.parse(savedDrinks);
+                }
+                const savedFriends = localStorage.getItem(STORAGE_KEYS.FRIENDS);
+                if (savedFriends) {
+                    appState.friends = JSON.parse(savedFriends);
+                }
+                const savedGeminiKey = localStorage.getItem(STORAGE_KEYS.GEMINI_KEY);
+                if (savedGeminiKey) {
+                    appState.geminiApiKey = savedGeminiKey;
+                }
+            } catch (err) {
+                console.error('Failed to load state from localStorage:', err);
+            }
+        }
+
+        function persistProfile() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(appState.profile));
+            } catch (err) {
+                console.error('Local profile save failed:', err);
+            }
+            syncStateToCloud();
+        }
+
+        function saveDrinks() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.DRINKS, JSON.stringify(appState.drinks));
+            } catch (err) {
+                appState.drinks.forEach((d, idx) => {
+                    if (idx > 5) d.thumbnail = null;
+                });
+                localStorage.setItem(STORAGE_KEYS.DRINKS, JSON.stringify(appState.drinks));
+            }
+            syncStateToCloud();
+        }
+
+        function saveFriends() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify(appState.friends));
+            } catch (err) {
+                console.error('Local friends save failed:', err);
+            }
+            syncStateToCloud();
+        }
+
+        // =========================================================================
+        // FIREBASE AUTHENTICATION & FIRESTORE CLOUD SYNC
+        // =========================================================================
+        function initFirebaseServices() {
+            try {
+                fbApp = initializeApp(FIREBASE_CONFIG);
+                fbAuth = getAuth(fbApp);
+                fbDb = getFirestore(fbApp);
+                appState.firebaseReady = true;
+
+                onAuthStateChanged(fbAuth, (firebaseUser) => {
+                    if (firebaseUser) {
+                        const rawEmail = firebaseUser.email || '';
+                        const username = rawEmail.includes('@') ? rawEmail.split('@')[0] : 'User';
+                        appState.user = { uid: firebaseUser.uid, username };
+                        closeAuthModal();
+                        updateAccountUI();
+                        subscribeToUserCloudData(firebaseUser.uid);
+                    } else {
+                        appState.user = null;
+                        if (unsubscribeUserDoc) {
+                            unsubscribeUserDoc();
+                            unsubscribeUserDoc = null;
+                        }
+                        updateAccountUI();
+                        renderFriendsLeaderboard();
+                    }
+                });
+            } catch (err) {
+                console.error('Firebase init error:', err);
+                appState.firebaseReady = false;
+                document.getElementById('auth-fb-dot').className = 'w-2 h-2 rounded-full bg-rose-400 shrink-0';
+                document.getElementById('auth-fb-text').textContent = 'Cloud Sync Unavailable';
+                document.getElementById('auth-fb-text').className = 'text-[11px] font-medium text-rose-400 truncate';
+            }
+        }
+
+        function subscribeToUserCloudData(uid) {
+            if (!fbDb) return;
+            const userRef = doc(fbDb, 'users', uid);
+
+            unsubscribeUserDoc = onSnapshot(userRef, (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    isApplyingRemoteSnapshot = true;
+                    try {
+                        if (data.profile) {
+                            appState.profile = { ...appState.profile, ...data.profile };
+                            localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(appState.profile));
+                            populateProfileForm();
+                        }
+                        if (Array.isArray(data.drinks)) {
+                            appState.drinks = data.drinks;
+                            localStorage.setItem(STORAGE_KEYS.DRINKS, JSON.stringify(appState.drinks));
+                        }
+                        if (Array.isArray(data.friends)) {
+                            appState.friends = data.friends;
+                            localStorage.setItem(STORAGE_KEYS.FRIENDS, JSON.stringify(appState.friends));
+                        }
+                        updateDashboard();
+                        renderHistoryTab();
+                        refreshFriendsLeaderboard(false);
+                    } finally {
+                        isApplyingRemoteSnapshot = false;
+                    }
+                } else {
+                    syncStateToCloud();
+                }
+            }, (err) => {
+                console.error('Firestore sync listener error:', err);
+                showToast('Cloud sync warning: check Firestore permissions.', 'error');
+            });
+        }
+
+        async function syncStateToCloud() {
+            if (isApplyingRemoteSnapshot || !appState.user || !fbDb) return;
+            try {
+                const sanitizedDrinks = appState.drinks.map((d, idx) => ({
+                    ...d,
+                    thumbnail: idx >= appState.drinks.length - 15 ? (d.thumbnail || null) : null
+                }));
+
+                await setDoc(doc(fbDb, 'users', appState.user.uid), {
+                    username: appState.user.username,
+                    profile: appState.profile,
+                    drinks: sanitizedDrinks,
+                    friends: appState.friends,
+                    updatedAt: Date.now()
+                }, { merge: true });
+            } catch (err) {
+                console.error('Failed to sync state to Firestore:', err);
+            }
+        }
+
+        function usernameToSyntheticEmail(username) {
+            const clean = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+            return `${clean}@alcosense.app`;
+        }
+
+        function setAuthMode(mode) {
+            appState.authMode = mode;
+            clearAuthError();
+            resetAuthPasswordVisibility();
+
+            const pwInput = document.getElementById('auth-password');
+            pwInput.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+
+            document.getElementById('auth-mode-login').className = mode === 'login'
+                ? 'py-2 rounded-xl text-xs font-bold bg-amber-500 text-slate-950 transition'
+                : 'py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition';
+            document.getElementById('auth-mode-signup').className = mode === 'signup'
+                ? 'py-2 rounded-xl text-xs font-bold bg-amber-500 text-slate-950 transition'
+                : 'py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition';
+            document.getElementById('auth-submit-btn').textContent = mode === 'login'
+                ? 'Log In to Cloud Sync'
+                : 'Create Account & Sync';
+        }
+
+        function toggleAuthPasswordVisibility() {
+            const input = document.getElementById('auth-password');
+            const eyeOpen = document.getElementById('auth-eye-open');
+            const eyeClosed = document.getElementById('auth-eye-closed');
+            const btn = document.getElementById('auth-toggle-pw-btn');
+
+            if (input.type === 'password') {
+                input.type = 'text';
+                eyeOpen.classList.add('hidden');
+                eyeClosed.classList.remove('hidden');
+                btn.setAttribute('aria-label', 'Hide password');
+            } else {
+                input.type = 'password';
+                eyeOpen.classList.remove('hidden');
+                eyeClosed.classList.add('hidden');
+                btn.setAttribute('aria-label', 'Show password');
+            }
+        }
+
+        function resetAuthPasswordVisibility() {
+            const input = document.getElementById('auth-password');
+            const eyeOpen = document.getElementById('auth-eye-open');
+            const eyeClosed = document.getElementById('auth-eye-closed');
+            const btn = document.getElementById('auth-toggle-pw-btn');
+            if (input) input.type = 'password';
+            if (eyeOpen) eyeOpen.classList.remove('hidden');
+            if (eyeClosed) eyeClosed.classList.add('hidden');
+            if (btn) btn.setAttribute('aria-label', 'Show password');
+        }
+
+        function showAuthError(title, message, highlightFields = ['username', 'password']) {
+            const box = document.getElementById('auth-error-box');
+            document.getElementById('auth-error-title').textContent = title;
+            document.getElementById('auth-error-msg').textContent = message;
+            box.classList.remove('hidden');
+
+            const userInput = document.getElementById('auth-username');
+            const pwInput = document.getElementById('auth-password');
+
+            if (highlightFields.includes('username')) {
+                userInput.classList.remove('border-slate-800', 'focus:border-amber-500');
+                userInput.classList.add('border-rose-500', 'focus:border-rose-400');
+            }
+            if (highlightFields.includes('password')) {
+                pwInput.classList.remove('border-slate-800', 'focus:border-amber-500');
+                pwInput.classList.add('border-rose-500', 'focus:border-rose-400');
+            }
+        }
+
+        function clearAuthError() {
+            const box = document.getElementById('auth-error-box');
+            if (box) box.classList.add('hidden');
+
+            const userInput = document.getElementById('auth-username');
+            const pwInput = document.getElementById('auth-password');
+            [userInput, pwInput].forEach(el => {
+                if (!el) return;
+                el.classList.remove('border-rose-500', 'focus:border-rose-400');
+                el.classList.add('border-slate-800', 'focus:border-amber-500');
+            });
+        }
+
+        async function handleAuthSubmit(event) {
+            event.preventDefault();
+            clearAuthError();
+
+            if (!appState.firebaseReady || !fbAuth) {
+                showAuthError('Connection Unavailable', 'Cloud Sync service is currently unavailable. Please tap "Continue Locally".', []);
+                return;
+            }
+
+            const rawUsername = document.getElementById('auth-username').value.trim();
+            const cleanUsername = rawUsername.toLowerCase().replace(/[^a-z0-9_]/g, '');
+            const password = document.getElementById('auth-password').value;
+
+            if (cleanUsername.length < 3) {
+                showAuthError('Invalid Username', 'Username must contain at least 3 letters, numbers, or underscores.', ['username']);
+                return;
+            }
+
+            const syntheticEmail = usernameToSyntheticEmail(cleanUsername);
+            const submitBtn = document.getElementById('auth-submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = appState.authMode === 'login' ? 'Signing in...' : 'Creating account...';
+
+            try {
+                if (appState.authMode === 'signup') {
+                    await createUserWithEmailAndPassword(fbAuth, syntheticEmail, password);
+                    showToast(`Welcome, @${cleanUsername}! Account created.`, 'success');
+                } else {
+                    await signInWithEmailAndPassword(fbAuth, syntheticEmail, password);
+                    showToast(`Welcome back, @${cleanUsername}!`, 'success');
+                }
+            } catch (err) {
+                if (err.code === 'auth/email-already-in-use') {
+                    showAuthError(
+                        'Username Already Taken',
+                        `The username "@${cleanUsername}" is already registered. Choose another username or switch to Log In.`,
+                        ['username']
+                    );
+                } else if (
+                    err.code === 'auth/user-not-found' ||
+                    err.code === 'auth/wrong-password' ||
+                    err.code === 'auth/invalid-credential' ||
+                    err.code === 'auth/invalid-email'
+                ) {
+                    showAuthError(
+                        'Incorrect Username or Password',
+                        'The username or password you entered is incorrect. Tap the eye icon to verify your password and try again.',
+                        ['username', 'password']
+                    );
+                } else if (err.code === 'auth/weak-password') {
+                    showAuthError(
+                        'Weak Password',
+                        'Your password must be at least 6 characters long.',
+                        ['password']
+                    );
+                } else if (err.code === 'auth/too-many-requests') {
+                    showAuthError(
+                        'Too Many Attempts',
+                        'Access temporarily paused due to multiple failed attempts. Wait a minute and try again.',
+                        ['username', 'password']
+                    );
+                } else if (err.code === 'auth/operation-not-allowed') {
+                    showAuthError(
+                        'Setup Required',
+                        'Enable Email/Password sign-in in your Firebase Console Authentication tab.',
+                        []
+                    );
+                } else if (err.code === 'auth/unauthorized-domain') {
+                    showAuthError(
+                        'Domain Not Authorized',
+                        'Add this domain to Firebase Console > Authentication > Settings > Authorized domains.',
+                        []
+                    );
+                } else {
+                    showAuthError(
+                        'Authentication Failed',
+                        'Unable to complete request. Please double-check your username and password.',
+                        ['username', 'password']
+                    );
+                }
+            } finally {
+                submitBtn.disabled = false;
+                document.getElementById('auth-submit-btn').textContent = appState.authMode === 'login'
+                    ? 'Log In to Cloud Sync'
+                    : 'Create Account & Sync';
+            }
+        }
+
+        function handleAccountButtonClick() {
+            if (appState.user) {
+                showConfirmModal(
+                    'Log Out',
+                    `Sign out of @${appState.user.username}? Your data remains safely backed up in the cloud.`,
+                    async () => {
+                        if (fbAuth) await signOut(fbAuth);
+                        showToast('Logged out. Switched to Local Mode.', 'info');
+                    }
+                );
+            } else {
+                openAuthModal();
+            }
+        }
+
+        function openAuthModal() {
+            const modal = document.getElementById('auth-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeAuthModal() {
+            const modal = document.getElementById('auth-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            clearAuthError();
+            resetAuthPasswordVisibility();
+        }
+
+        function continueAsGuest() {
+            localStorage.setItem(STORAGE_KEYS.GUEST_DISMISSED, '1');
+            closeAuthModal();
+            showToast('Using Local Mode (saved in this browser).', 'info');
+        }
+
+        function updateAccountUI() {
+            const sub = document.getElementById('header-sync-subtitle');
+            const acctLabel = document.getElementById('header-account-label');
+            const sTitle = document.getElementById('settings-account-title');
+            const sDesc = document.getElementById('settings-account-desc');
+            const sBtn = document.getElementById('settings-account-btn');
+            const handleText = document.getElementById('lb-my-handle-text');
+            const copyBtn = document.getElementById('lb-copy-handle-btn');
+
+            if (appState.user) {
+                sub.textContent = `Synced • @${appState.user.username}`;
+                sub.className = 'text-[11px] text-emerald-400 font-medium truncate';
+                acctLabel.textContent = 'Log Out';
+                sTitle.textContent = `Signed in as @${appState.user.username}`;
+                sDesc.textContent = 'Your profile and drink history sync automatically to Firebase Cloud.';
+                sBtn.textContent = 'Log Out';
+                sBtn.className = 'shrink-0 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-slate-200 hover:text-rose-300 font-bold text-xs transition';
+                if (handleText) handleText.textContent = `Your handle: @${appState.user.username} (friends add this too)`;
+                if (copyBtn) copyBtn.classList.remove('hidden');
+            } else {
+                sub.textContent = 'Local Mode';
+                sub.className = 'text-[11px] text-slate-400 font-medium truncate';
+                acctLabel.textContent = 'Log In';
+                sTitle.textContent = 'Not Signed In (Local Storage)';
+                sDesc.textContent = 'Sign in with a username & password to sync across devices.';
+                sBtn.textContent = 'Sign In / Up';
+                sBtn.className = 'shrink-0 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition';
+                if (handleText) handleText.textContent = 'Log in so friends can add your @username';
+                if (copyBtn) copyBtn.classList.add('hidden');
+            }
+        }
+
+        // =========================================================================
+        // FRIENDS-ONLY LEADERBOARD (BY @USERNAME)
+        // =========================================================================
+        function normalizeUsername(raw) {
+            return String(raw || '').trim().replace(/^@+/, '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+        }
+
+        function setLeaderboardMetric(metric) {
+            appState.leaderboardMetric = metric;
+            document.getElementById('lb-mode-bac').className = metric === 'bac'
+                ? 'px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 transition'
+                : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition';
+            document.getElementById('lb-mode-drinks').className = metric === 'drinks'
+                ? 'px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 transition'
+                : 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition';
+            renderFriendsLeaderboard();
+        }
+
+        async function copyMyUsername() {
+            if (!appState.user) {
+                openAuthModal();
+                return;
+            }
+            const handle = `@${appState.user.username}`;
+            try {
+                await navigator.clipboard.writeText(handle);
+                showToast(`Copied ${handle}!`, 'success');
+            } catch (_) {
+                showToast(`Your username is ${handle}`, 'info');
+            }
+        }
+
+        async function lookupUserByUsername(cleanUsername) {
+            if (!fbDb) return null;
+            const q = query(collection(fbDb, 'users'), where('username', '==', cleanUsername));
+            const snap = await getDocs(q);
+            if (snap.empty) return null;
+            const docSnap = snap.docs[0];
+            return { uid: docSnap.id, ...docSnap.data() };
+        }
+
+        async function handleAddFriend(event) {
+            event.preventDefault();
+            const input = document.getElementById('friend-username-input');
+            const btn = document.getElementById('add-friend-btn');
+            const clean = normalizeUsername(input.value);
+
+            if (clean.length < 3) {
+                showToast('Enter a valid @username (at least 3 characters).', 'error');
+                return;
+            }
+            if (appState.user && clean === appState.user.username) {
+                showToast('You are already included on your own leaderboard.', 'info');
+                input.value = '';
+                return;
+            }
+            if (appState.friends.includes(clean)) {
+                showToast(`@${clean} is already on your leaderboard.`, 'info');
+                input.value = '';
+                return;
+            }
+            if (!appState.firebaseReady || !fbDb) {
+                showToast('Cloud connection required to find friends by username.', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '...';
+            try {
+                const found = await lookupUserByUsername(clean);
+                if (!found) {
+                    showToast(`No user found with @${clean}.`, 'error');
+                    return;
+                }
+                appState.friends.push(clean);
+                appState.friendProfiles[clean] = found;
+                saveFriends();
+                input.value = '';
+                renderFriendsLeaderboard();
+                showToast(`Added @${clean} to your leaderboard!`, 'success');
+            } catch (err) {
+                console.error('Add friend lookup failed:', err);
+                showToast('Could not search user. Check Firestore read rules for users.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '+ Add';
+            }
+        }
+
+        function removeFriend(username) {
+            showConfirmModal(
+                'Remove Friend',
+                `Remove @${username} from your friends leaderboard?`,
+                () => {
+                    appState.friends = appState.friends.filter(f => f !== username);
+                    delete appState.friendProfiles[username];
+                    saveFriends();
+                    renderFriendsLeaderboard();
+                    showToast(`Removed @${username}.`, 'info');
+                }
+            );
+        }
+
+        async function refreshFriendsLeaderboard(notify = false) {
+            if (!appState.firebaseReady || !fbDb || appState.friends.length === 0) {
+                renderFriendsLeaderboard();
+                return;
+            }
+            try {
+                await Promise.all(appState.friends.map(async (uname) => {
+                    const data = await lookupUserByUsername(uname);
+                    if (data) {
+                        appState.friendProfiles[uname] = data;
+                    }
+                }));
+                renderFriendsLeaderboard();
+                if (notify) showToast('Friends leaderboard updated.', 'success');
+            } catch (err) {
+                console.error('Failed to refresh friends:', err);
+            }
+        }
+
+        function calculateUserMetricsForLeaderboard(profileObj, drinksArr, nowMs) {
+            const p = {
+                sex: 'male',
+                weight: 70,
+                weightUnit: 'kg',
+                age: 28,
+                height: 175,
+                heightUnit: 'cm',
+                useWatson: true,
+                ...(profileObj || {})
+            };
+            const list = Array.isArray(drinksArr) ? drinksArr : [];
+            const weightKg = p.weightUnit === 'lbs' ? (parseFloat(p.weight) || 70) * 0.45359237 : (parseFloat(p.weight) || 70);
+            const heightCm = p.heightUnit === 'ft' ? (parseFloat(p.height) || 175) * 2.54 : (parseFloat(p.height) || 175);
+            const isMale = p.sex === 'male';
+            let r = isMale ? 0.68 : 0.55;
+
+            if (p.useWatson && p.age >= 18 && heightCm >= 100) {
+                const tbw = isMale
+                    ? 2.447 - (0.09156 * p.age) + (0.1074 * heightCm) + (0.3362 * weightKg)
+                    : -2.097 + (0.1069 * heightCm) + (0.2466 * weightKg);
+                r = Math.min(Math.max(tbw / (0.80 * weightKg), 0.45), 0.80);
+            }
+
+            const weightGrams = weightKg * 1000;
+            const relevant = list.filter(d => d.timestamp <= nowMs).sort((a, b) => a.timestamp - b.timestamp);
+            let bac = 0;
+            if (relevant.length > 0 && weightGrams > 0 && r > 0) {
+                let lastTime = relevant[0].timestamp;
+                for (const d of relevant) {
+                    const hrs = Math.max(0, (d.timestamp - lastTime) / 3600000);
+                    bac = Math.max(0, bac - hrs * ELIMINATION_RATE_PER_HOUR);
+                    const grams = calcAlcoholGrams(d.volumeMl, d.abv, d.qty || 1);
+                    bac += (grams / (weightGrams * r)) * 100;
+                    lastTime = d.timestamp;
+                }
+                const finalHrs = Math.max(0, (nowMs - lastTime) / 3600000);
+                bac = Math.max(0, bac - finalHrs * ELIMINATION_RATE_PER_HOUR);
+            }
+
+            const sevenDaysAgo = nowMs - (7 * 24 * 3600000);
+            const drinks7d = list
+                .filter(d => d.timestamp >= sevenDaysAgo)
+                .reduce((sum, d) => sum + (d.qty || 1), 0);
+
+            return { bac, drinks7d };
+        }
+
+        function renderFriendsLeaderboard() {
+            const container = document.getElementById('friends-leaderboard-list');
+            if (!container) return;
+
+            const now = Date.now();
+            const entries = [];
+
+            const myMetrics = calculateUserMetricsForLeaderboard(appState.profile, appState.drinks, now);
+            entries.push({
+                username: appState.user ? appState.user.username : 'you',
+                isSelf: true,
+                bac: myMetrics.bac,
+                drinks7d: myMetrics.drinks7d,
+                loaded: true
+            });
+
+            for (const fname of appState.friends) {
+                const fData = appState.friendProfiles[fname];
+                if (fData) {
+                    const m = calculateUserMetricsForLeaderboard(fData.profile, fData.drinks, now);
+                    entries.push({
+                        username: fname,
+                        isSelf: false,
+                        bac: m.bac,
+                        drinks7d: m.drinks7d,
+                        loaded: true
+                    });
+                } else {
+                    entries.push({
+                        username: fname,
+                        isSelf: false,
+                        bac: 0,
+                        drinks7d: 0,
+                        loaded: false
+                    });
+                }
+            }
+
+            if (appState.friends.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-5 px-4 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800">
+                        <p class="text-xs text-slate-400">No friends added yet.</p>
+                        <p class="text-[11px] text-slate-500 mt-1">Enter a friend's @username above to compare Live BAC and 7-day drinks.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            entries.sort((a, b) => {
+                if (appState.leaderboardMetric === 'drinks') {
+                    return (b.drinks7d - a.drinks7d) || (b.bac - a.bac);
+                }
+                return (b.bac - a.bac) || (b.drinks7d - a.drinks7d);
+            });
+
+            container.innerHTML = entries.map((entry, idx) => {
+                const rank = idx + 1;
+                const rankBadge = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+                const statPrimary = appState.leaderboardMetric === 'drinks'
+                    ? `${entry.drinks7d} ${entry.drinks7d === 1 ? 'drink' : 'drinks'}`
+                    : `${entry.bac.toFixed(3)}%`;
+                const statSecondary = appState.leaderboardMetric === 'drinks'
+                    ? `Live BAC: ${entry.bac.toFixed(3)}%`
+                    : `${entry.drinks7d} drinks (7d)`;
+
+                const selfTag = entry.isSelf
+                    ? `<span class="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">You</span>`
+                    : '';
+
+                const removeBtn = !entry.isSelf
+                    ? `<button type="button" onclick="removeFriend('${escapeHTML(entry.username)}')" title="Remove friend" class="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition shrink-0">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                       </button>`
+                    : '';
+
+                return `
+                    <div class="flex items-center justify-between gap-3 p-3 rounded-2xl ${entry.isSelf ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-slate-950/80 border border-slate-800/80'}">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="w-7 text-center text-xs font-extrabold font-mono text-slate-300 shrink-0">${rankBadge}</span>
+                            <div class="min-w-0">
+                                <p class="text-xs font-bold text-white truncate">@${escapeHTML(entry.username)}${selfTag}</p>
+                                <p class="text-[10px] text-slate-400 font-mono mt-0.5">${entry.loaded ? statSecondary : 'Syncing stats...'}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="text-xs font-extrabold font-mono text-amber-400">${statPrimary}</span>
+                            ${removeBtn}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // =========================================================================
+        // SETTINGS: GEMINI API KEY & JSON BACKUP
+        // =========================================================================
+        function saveGeminiApiKey() {
+            const val = document.getElementById('settings-gemini-key').value.trim();
+            appState.geminiApiKey = val;
+            if (val) {
+                localStorage.setItem(STORAGE_KEYS.GEMINI_KEY, val);
+                showToast('Gemini API key saved locally!', 'success');
+            } else {
+                localStorage.removeItem(STORAGE_KEYS.GEMINI_KEY);
+                showToast('Gemini API key cleared.', 'info');
+            }
+        }
+
+        function toggleGeminiKeyVisibility() {
+            const input = document.getElementById('settings-gemini-key');
+            input.type = input.type === 'password' ? 'text' : 'password';
+        }
+
+        function exportDataJSON() {
+            const payload = {
+                exportedAt: new Date().toISOString(),
+                profile: appState.profile,
+                drinks: appState.drinks,
+                friends: appState.friends
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `alcosense-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Backup JSON downloaded!', 'success');
+        }
+
+        function importDataJSON(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.profile) {
+                        appState.profile = { ...appState.profile, ...data.profile };
+                        persistProfile();
+                        populateProfileForm();
+                    }
+                    if (Array.isArray(data.drinks)) {
+                        appState.drinks = data.drinks;
+                        saveDrinks();
+                    }
+                    if (Array.isArray(data.friends)) {
+                        appState.friends = data.friends;
+                        saveFriends();
+                        refreshFriendsLeaderboard(false);
+                    }
+                    updateDashboard();
+                    renderHistoryTab();
+                    showToast('Backup restored successfully!', 'success');
+                } catch (err) {
+                    showToast('Invalid backup JSON file.', 'error');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        // =========================================================================
+        // WIDMARK & WATSON BAC CALCULATION ENGINE
+        // =========================================================================
+        function getWeightInKg() {
+            const w = parseFloat(appState.profile.weight) || 70;
+            return appState.profile.weightUnit === 'lbs' ? w * 0.45359237 : w;
+        }
+
+        function getHeightInCm() {
+            const h = parseFloat(appState.profile.height) || 175;
+            return appState.profile.heightUnit === 'ft' ? h * 2.54 : h;
+        }
+
+        function getEffectiveWidmarkR() {
+            const weightKg = getWeightInKg();
+            const isMale = appState.profile.sex === 'male';
+            const classicR = isMale ? 0.68 : 0.55;
+
+            if (!appState.profile.useWatson) return classicR;
+
+            const age = parseFloat(appState.profile.age);
+            const heightCm = getHeightInCm();
+            if (!age || !heightCm || age < 18 || heightCm < 100) return classicR;
+
+            let tbw = 0;
+            if (isMale) {
+                tbw = 2.447 - (0.09156 * age) + (0.1074 * heightCm) + (0.3362 * weightKg);
+            } else {
+                tbw = -2.097 + (0.1069 * heightCm) + (0.2466 * weightKg);
+            }
+
+            const derivedR = tbw / (0.80 * weightKg);
+            return Math.min(Math.max(derivedR, 0.45), 0.80);
+        }
+
+        function calcAlcoholGrams(volumeMl, abvPercent, qty = 1) {
+            return volumeMl * (abvPercent / 100) * ETHANOL_DENSITY * qty;
+        }
+
+        function calculateBACAtTime(drinksList, targetTimestampMs) {
+            const weightGrams = getWeightInKg() * 1000;
+            const r = getEffectiveWidmarkR();
+            if (weightGrams <= 0 || r <= 0) return 0;
+
+            const relevantDrinks = drinksList
+                .filter(d => d.timestamp <= targetTimestampMs)
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            if (relevantDrinks.length === 0) return 0;
+
+            let currentBAC = 0;
+            let lastEventTime = relevantDrinks[0].timestamp;
+
+            for (const drink of relevantDrinks) {
+                const hoursElapsed = Math.max(0, (drink.timestamp - lastEventTime) / 3600000);
+                currentBAC = Math.max(0, currentBAC - (hoursElapsed * ELIMINATION_RATE_PER_HOUR));
+
+                const alcoholGrams = calcAlcoholGrams(drink.volumeMl, drink.abv, drink.qty || 1);
+                const bacIncrease = (alcoholGrams / (weightGrams * r)) * 100;
+                currentBAC += bacIncrease;
+                lastEventTime = drink.timestamp;
+            }
+
+            const finalHoursElapsed = Math.max(0, (targetTimestampMs - lastEventTime) / 3600000);
+            currentBAC = Math.max(0, currentBAC - (finalHoursElapsed * ELIMINATION_RATE_PER_HOUR));
+
+            return currentBAC;
+        }
+
+        function formatHoursDuration(hours) {
+            if (hours <= 0) return '0h 00m';
+            const totalMins = Math.ceil(hours * 60);
+            const h = Math.floor(totalMins / 60);
+            const m = totalMins % 60;
+            return `${h}h ${String(m).padStart(2, '0')}m`;
+        }
+
+        function formatFutureTime(msFromNow) {
+            if (msFromNow <= 0) return 'Now';
+            const date = new Date(Date.now() + msFromNow);
+            const now = new Date();
+            const isToday = date.toDateString() === now.toDateString();
+            const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            return isToday ? `Est. ${timeStr}` : `Tomorrow ${timeStr}`;
+        }
+
+        // =========================================================================
+        // UI DASHBOARD RENDERING & LIVE TICKER
+        // =========================================================================
+        function updateDashboard() {
+            const now = Date.now();
+            document.getElementById('live-clock').textContent = new Date(now).toLocaleTimeString([], {
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+
+            const alertBanner = document.getElementById('profile-alert-banner');
+            const headerBadgeText = document.getElementById('header-profile-text');
+            const profileDot = document.getElementById('profile-dot');
+
+            if (!appState.profile.isConfigured) {
+                alertBanner.classList.remove('hidden');
+                headerBadgeText.textContent = 'Set Profile';
+                profileDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+            } else {
+                alertBanner.classList.add('hidden');
+                const sexLabel = appState.profile.sex === 'male' ? 'M' : 'F';
+                headerBadgeText.textContent = `${sexLabel} • ${appState.profile.weight}${appState.profile.weightUnit}`;
+                profileDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+            }
+
+            const bac = calculateBACAtTime(appState.drinks, now);
+            const bacEl = document.getElementById('bac-value-display');
+            const statusPill = document.getElementById('bac-status-pill');
+            const statusDesc = document.getElementById('bac-status-desc');
+            const gaugeArc = document.getElementById('bac-gauge-arc');
+
+            bacEl.textContent = bac.toFixed(3);
+
+            const maxScale = 0.25;
+            const ratio = Math.min(bac / maxScale, 1);
+            const dashOffset = 282.74 * (1 - ratio);
+            gaugeArc.style.strokeDashoffset = dashOffset;
+
+            if (bac < 0.005) {
+                gaugeArc.style.stroke = '#10b981';
+                statusPill.className = 'mt-2 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+                statusPill.textContent = 'Sober / Clear';
+                statusDesc.textContent = 'No significant alcohol estimated in your bloodstream.';
+            } else if (bac < 0.03) {
+                gaugeArc.style.stroke = '#38bdf8';
+                statusPill.className = 'mt-2 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30';
+                statusPill.textContent = 'Minimal / Sub-Threshold';
+                statusDesc.textContent = 'Slight relaxation possible. Motor coordination generally normal.';
+            } else if (bac < 0.05) {
+                gaugeArc.style.stroke = '#facc15';
+                statusPill.className = 'mt-2 px-3 py-1 rounded-full text-xs font-bold bg-yellow-500/15 text-yellow-300 border border-yellow-500/30';
+                statusPill.textContent = 'Mild Buzz / Caution';
+                statusDesc.textContent = 'Mild euphoria and lowered inhibitions. Avoid driving.';
+            } else if (bac < 0.08) {
+                gaugeArc.style.stroke = '#f97316';
+                statusPill.className = 'mt-2 px-3 py-1 rounded-full text-xs font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30';
+                statusPill.textContent = 'Impaired — Do Not Drive';
+                statusDesc.textContent = 'Reduced coordination, slower reaction time, and impaired judgment.';
+            } else if (bac < 0.15) {
+                gaugeArc.style.stroke = '#f43f5e';
+                statusPill.className = 'mt-2 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30';
+                statusPill.textContent = 'Legally Intoxicated — Unsafe';
+                statusDesc.textContent = 'Significant impairment of balance, speech, vision, and reaction time.';
+            } else {
+                gaugeArc.style.stroke = '#e11d48';
+                statusPill.className = 'mt-2 px-3 py-1 rounded-full text-xs font-bold bg-rose-600/25 text-rose-300 border border-rose-500/50';
+                statusPill.textContent = 'High Intoxication — Danger';
+                statusDesc.textContent = 'Severe impairment. Hydrate with water, rest safely, and stop drinking.';
+            }
+
+            const hoursToSober = bac > 0 ? bac / ELIMINATION_RATE_PER_HOUR : 0;
+            const hoursToUnder05 = bac > 0.05 ? (bac - 0.05) / ELIMINATION_RATE_PER_HOUR : 0;
+
+            document.getElementById('timer-sober').textContent = formatHoursDuration(hoursToSober);
+            document.getElementById('eta-sober').textContent = hoursToSober > 0 ? formatFutureTime(hoursToSober * 3600000) : 'Completely clear';
+
+            document.getElementById('timer-under-05').textContent = hoursToUnder05 > 0 ? formatHoursDuration(hoursToUnder05) : 'Below 0.05%';
+            document.getElementById('eta-under-05').textContent = hoursToUnder05 > 0 ? formatFutureTime(hoursToUnder05 * 3600000) : 'Currently under 0.05%';
+
+            renderRecentSessionDrinks(now);
+            renderFriendsLeaderboard();
+        }
+
+        function renderRecentSessionDrinks(now) {
+            const twentyFourHoursAgo = now - (24 * 3600000);
+            const recentDrinks = appState.drinks
+                .filter(d => d.timestamp >= twentyFourHoursAgo)
+                .sort((a, b) => b.timestamp - a.timestamp);
+
+            const container = document.getElementById('recent-drinks-list');
+            const summaryEl = document.getElementById('active-session-summary');
+
+            const totalCount = recentDrinks.reduce((acc, d) => acc + (d.qty || 1), 0);
+            const totalGrams = recentDrinks.reduce((acc, d) => acc + calcAlcoholGrams(d.volumeMl, d.abv, d.qty || 1), 0);
+            summaryEl.textContent = `${totalCount} ${totalCount === 1 ? 'drink' : 'drinks'} • ${totalGrams.toFixed(1)}g pure alcohol`;
+
+            if (recentDrinks.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 px-4 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800">
+                        <p class="text-xs text-slate-400">No drinks logged in the last 24 hours.</p>
+                        <button onclick="switchTab('scan')" class="mt-2 text-xs font-bold text-amber-400 hover:underline">+ Scan or Log a Drink</button>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = recentDrinks.map(drink => createDrinkCardHTML(drink)).join('');
+        }
+
+        function createDrinkCardHTML(drink) {
+            const timeStr = new Date(drink.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            const dateStr = new Date(drink.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' });
+            const grams = calcAlcoholGrams(drink.volumeMl, drink.abv, drink.qty || 1);
+            const stdDrinks = (grams / STANDARD_DRINK_GRAMS).toFixed(1);
+            const qtyBadge = (drink.qty && drink.qty > 1) ? `<span class="text-amber-400 font-bold">${drink.qty}× </span>` : '';
+
+            const mediaHTML = drink.thumbnail
+                ? `<img src="${drink.thumbnail}" alt="${drink.name}" class="w-11 h-11 rounded-xl object-cover border border-slate-700 shrink-0">`
+                : `<div class="w-11 h-11 rounded-xl bg-slate-800/90 border border-slate-700/70 flex items-center justify-center text-xl shrink-0">${drink.icon || '🍺'}</div>`;
+
+            return `
+                <div class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-950/80 border border-slate-800/80">
+                    <div class="flex items-center gap-3 min-w-0">
+                        ${mediaHTML}
+                        <div class="min-w-0">
+                            <p class="text-xs font-bold text-white truncate">${qtyBadge}${escapeHTML(drink.name)}</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">${Math.round(drink.volumeMl)}ml • ${drink.abv}% ABV • <span class="text-slate-300 font-medium">${stdDrinks} std</span></p>
+                            <p class="text-[10px] text-slate-500 font-mono mt-0.5">${dateStr} at ${timeStr}</p>
+                        </div>
+                    </div>
+                    <button onclick="deleteDrink('${drink.id}')" title="Delete drink" class="p-2 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition shrink-0">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                    </button>
+                </div>
+            `;
+        }
+
+        // =========================================================================
+        // GEMINI MULTIMODAL AI DRINK SCANNER
+        // =========================================================================
+        async function handleImageUpload(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+
+            try {
+                const { apiBase64, thumbnailDataUrl } = await processImageForAI(file);
+                appState.currentThumbnail = thumbnailDataUrl;
+
+                document.getElementById('scanner-placeholder').classList.add('hidden');
+                document.getElementById('scanner-preview-wrapper').classList.remove('hidden');
+                document.getElementById('scanner-preview-img').src = thumbnailDataUrl;
+                document.getElementById('scanner-loading-overlay').classList.remove('hidden');
+                document.getElementById('ai-result-banner').classList.add('hidden');
+
+                const aiAnalysis = await analyzeDrinkImageWithGemini(apiBase64);
+
+                document.getElementById('scanner-loading-overlay').classList.add('hidden');
+
+                if (aiAnalysis) {
+                    setVolumeUnit('ml');
+                    document.getElementById('drink-name').value = aiAnalysis.drinkName || 'Alcoholic Beverage';
+                    document.getElementById('drink-volume').value = aiAnalysis.volumeMl || 330;
+                    document.getElementById('drink-abv').value = aiAnalysis.abvPercent || 5.0;
+                    document.getElementById('drink-qty').value = aiAnalysis.quantity || 1;
+                    appState.currentIcon = pickEmojiForCategory(aiAnalysis.category);
+
+                    const banner = document.getElementById('ai-result-banner');
+                    banner.classList.remove('hidden');
+                    document.getElementById('ai-confidence-title').textContent =
+                        `Detected: ${aiAnalysis.drinkName} (${aiAnalysis.confidence || 'High'} Confidence)`;
+                    document.getElementById('ai-reasoning-text').textContent =
+                        aiAnalysis.notes || 'Verify container size and ABV below before logging.';
+
+                    updateLiveDrinkPreview();
+                    showToast('Drink identified! Review details & tap Log Drink.', 'success');
+                }
+            } catch (error) {
+                document.getElementById('scanner-loading-overlay').classList.add('hidden');
+                showToast('Could not analyze photo automatically. Please enter details manually (or check Gemini API key in Profile).', 'error');
+            }
+        }
+
+        function processImageForAI(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const apiCanvas = document.createElement('canvas');
+                        const maxDim = 800;
+                        let w = img.width;
+                        let h = img.height;
+                        if (w > maxDim || h > maxDim) {
+                            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+                            else { w = Math.round(w * maxDim / h); h = maxDim; }
+                        }
+                        apiCanvas.width = w;
+                        apiCanvas.height = h;
+                        apiCanvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        const apiDataUrl = apiCanvas.toDataURL('image/jpeg', 0.82);
+                        const apiBase64 = apiDataUrl.split(',')[1];
+
+                        const thumbCanvas = document.createElement('canvas');
+                        const tMax = 140;
+                        let tw = img.width, th = img.height;
+                        if (tw > th) { th = Math.round(th * tMax / tw); tw = tMax; }
+                        else { tw = Math.round(tw * tMax / th); th = tMax; }
+                        thumbCanvas.width = tw;
+                        thumbCanvas.height = th;
+                        thumbCanvas.getContext('2d').drawImage(img, 0, 0, tw, th);
+                        const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
+
+                        resolve({ apiBase64, thumbnailDataUrl });
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function analyzeDrinkImageWithGemini(base64ImageData) {
+            const activeApiKey = appState.geminiApiKey || "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${activeApiKey}`;
+
+            const prompt = `Analyze this image of a drink. Identify the specific brand or type of alcoholic beverage (beer, wine, cocktail, spirit, cider, seltzer, etc.). Estimate the container or glass serving volume in milliliters (ml), the Alcohol By Volume percentage (ABV %), and how many drinks/glasses/bottles are clearly meant to be consumed by the user (default 1 unless multiple identical servings are grouped as a flight/round). If the image does not appear to be an alcoholic drink, set abvPercent to 0 and explain in notes.`;
+
+            const payload = {
+                contents: [{
+                    role: "user",
+                    parts: [
+                        { text: prompt },
+                        {
+                            inlineData: {
+                                mimeType: "image/jpeg",
+                                data: base64ImageData
+                            }
+                        }
+                    ]
+                }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            drinkName: { type: "STRING", description: "Brand and drink name, e.g. 'Heineken Lager' or 'Margarita'" },
+                            category: { type: "STRING", description: "One of: beer, wine, cocktail, shot, cider, non-alcoholic" },
+                            volumeMl: { type: "NUMBER", description: "Estimated volume of a single serving in milliliters" },
+                            abvPercent: { type: "NUMBER", description: "Estimated Alcohol By Volume percentage (e.g. 5.0 for 5%)" },
+                            quantity: { type: "INTEGER", description: "Number of servings detected, typically 1" },
+                            confidence: { type: "STRING", description: "High, Medium, or Low" },
+                            notes: { type: "STRING", description: "Brief 1-sentence explanation of size and ABV estimate" }
+                        },
+                        required: ["drinkName", "category", "volumeMl", "abvPercent", "quantity", "confidence", "notes"]
+                    }
+                }
+            };
+
+            const delays = [1000, 2000, 4000];
+            for (let attempt = 0; attempt <= delays.length; attempt++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!text) throw new Error('Empty AI response');
+                    return JSON.parse(text);
+                } catch (err) {
+                    if (attempt === delays.length) throw err;
+                    await new Promise(res => setTimeout(res, delays[attempt]));
+                }
+            }
+        }
+
+        function pickEmojiForCategory(cat) {
+            const c = (cat || '').toLowerCase();
+            if (c.includes('wine')) return '🍷';
+            if (c.includes('cocktail')) return '🍸';
+            if (c.includes('shot') || c.includes('spirit')) return '🥃';
+            if (c.includes('cider')) return '🍏';
+            return '🍺';
+        }
+
+        function resetScanner() {
+            document.getElementById('drink-image-input').value = '';
+            document.getElementById('scanner-placeholder').classList.remove('hidden');
+            document.getElementById('scanner-preview-wrapper').classList.add('hidden');
+            document.getElementById('ai-result-banner').classList.add('hidden');
+            appState.currentThumbnail = null;
+        }
+
+        // =========================================================================
+        // DRINK LOGGING FORM & PRESETS
+        // =========================================================================
+        function setVolumeUnit(unit) {
+            const input = document.getElementById('drink-volume');
+            const currentVal = parseFloat(input.value) || 0;
+
+            if (unit !== appState.volumeUnit && currentVal > 0) {
+                if (unit === 'oz') {
+                    input.value = (currentVal / 29.5735).toFixed(1);
+                } else {
+                    input.value = Math.round(currentVal * 29.5735);
+                }
+            }
+
+            appState.volumeUnit = unit;
+            document.getElementById('vol-unit-ml').className = unit === 'ml'
+                ? 'px-2 py-0.5 rounded bg-amber-500 text-slate-950'
+                : 'px-2 py-0.5 rounded text-slate-400';
+            document.getElementById('vol-unit-oz').className = unit === 'oz'
+                ? 'px-2 py-0.5 rounded bg-amber-500 text-slate-950'
+                : 'px-2 py-0.5 rounded text-slate-400';
+
+            updateLiveDrinkPreview();
+        }
+
+        function applyPreset(name, volumeMl, abv, icon) {
+            setVolumeUnit('ml');
+            document.getElementById('drink-name').value = name;
+            document.getElementById('drink-volume').value = volumeMl;
+            document.getElementById('drink-abv').value = abv;
+            document.getElementById('drink-qty').value = 1;
+            appState.currentIcon = icon;
+            updateLiveDrinkPreview();
+            showToast(`Preset loaded: ${name}`, 'info');
+        }
+
+        function setDefaultDateTimeInput() {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('drink-time').value = now.toISOString().slice(0, 16);
+        }
+
+        function updateLiveDrinkPreview() {
+            const rawVol = parseFloat(document.getElementById('drink-volume').value) || 0;
+            const volumeMl = appState.volumeUnit === 'oz' ? rawVol * 29.5735 : rawVol;
+            const abv = parseFloat(document.getElementById('drink-abv').value) || 0;
+            const qty = parseInt(document.getElementById('drink-qty').value) || 1;
+
+            const grams = calcAlcoholGrams(volumeMl, abv, qty);
+            const stdDrinks = grams / STANDARD_DRINK_GRAMS;
+
+            const weightGrams = getWeightInKg() * 1000;
+            const r = getEffectiveWidmarkR();
+            const bacImpact = weightGrams > 0 ? (grams / (weightGrams * r)) * 100 : 0;
+
+            document.getElementById('preview-alcohol-stats').textContent =
+                `${grams.toFixed(1)}g pure alcohol • ${stdDrinks.toFixed(2)} std drinks`;
+            document.getElementById('preview-bac-impact').textContent =
+                `+${bacImpact.toFixed(3)}%`;
+        }
+
+        function handleLogDrink(event) {
+            event.preventDefault();
+
+            const name = document.getElementById('drink-name').value.trim() || 'Drink';
+            const rawVol = parseFloat(document.getElementById('drink-volume').value);
+            const volumeMl = appState.volumeUnit === 'oz' ? rawVol * 29.5735 : rawVol;
+            const abv = parseFloat(document.getElementById('drink-abv').value);
+            const qty = parseInt(document.getElementById('drink-qty').value) || 1;
+            const timeVal = document.getElementById('drink-time').value;
+            const timestamp = timeVal ? new Date(timeVal).getTime() : Date.now();
+
+            if (!volumeMl || volumeMl <= 0 || isNaN(abv) || abv < 0) {
+                showToast('Please enter a valid volume and ABV%.', 'error');
+                return;
+            }
+
+            const newDrink = {
+                id: 'drk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                name,
+                volumeMl: Math.round(volumeMl * 10) / 10,
+                abv,
+                qty,
+                timestamp,
+                icon: appState.currentIcon || '🍺',
+                thumbnail: appState.currentThumbnail || null
+            };
+
+            appState.drinks.push(newDrink);
+            saveDrinks();
+            resetScanner();
+            updateDashboard();
+            renderHistoryTab();
+            switchTab('dashboard');
+            showToast(`Logged ${qty > 1 ? qty + '× ' : ''}${name}!`, 'success');
+        }
+
+        function deleteDrink(id) {
+            showConfirmModal(
+                'Remove Drink',
+                'Delete this drink entry and recalculate your BAC?',
+                () => {
+                    appState.drinks = appState.drinks.filter(d => d.id !== id);
+                    saveDrinks();
+                    updateDashboard();
+                    renderHistoryTab();
+                    showToast('Drink removed from log.', 'info');
+                }
+            );
+        }
+
+        function confirmClearAllHistory() {
+            if (appState.drinks.length === 0) return;
+            showConfirmModal(
+                'Clear All Drink History',
+                'This will permanently delete all logged drinks from your tracker. Continue?',
+                () => {
+                    appState.drinks = [];
+                    saveDrinks();
+                    updateDashboard();
+                    renderHistoryTab();
+                    showToast('All drink history cleared.', 'info');
+                }
+            );
+        }
+
+        // =========================================================================
+        // MULTI-WEEK HISTORY & ANALYTICS
+        // =========================================================================
+        function setHistoryRange(days) {
+            appState.historyRangeDays = days;
+            [7, 14, 28].forEach(d => {
+                const btn = document.getElementById(`range-btn-${d}`);
+                btn.className = d === days
+                    ? 'flex-1 py-2 rounded-xl text-xs font-bold bg-amber-500 text-slate-950 transition'
+                    : 'flex-1 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition';
+            });
+            renderHistoryTab();
+        }
+
+        function renderHistoryTab() {
+            const now = Date.now();
+            const msPerDay = 24 * 3600000;
+
+            const drinks7d = appState.drinks.filter(d => d.timestamp >= now - 7 * msPerDay);
+            const drinks28d = appState.drinks.filter(d => d.timestamp >= now - 28 * msPerDay);
+
+            const count7d = drinks7d.reduce((sum, d) => sum + (d.qty || 1), 0);
+            const count28d = drinks28d.reduce((sum, d) => sum + (d.qty || 1), 0);
+            const std28d = drinks28d.reduce((sum, d) => sum + (calcAlcoholGrams(d.volumeMl, d.abv, d.qty || 1) / STANDARD_DRINK_GRAMS), 0);
+
+            document.getElementById('stat-drinks-7d').textContent = count7d;
+            document.getElementById('stat-drinks-28d').textContent = count28d;
+            document.getElementById('stat-std-28d').textContent = `${std28d.toFixed(1)} std drinks`;
+
+            const rangeDays = appState.historyRangeDays;
+            const rangeDrinks = appState.drinks.filter(d => d.timestamp >= now - rangeDays * msPerDay);
+
+            let peakBac = 0;
+            for (const d of rangeDrinks) {
+                const bacAtDrink = calculateBACAtTime(appState.drinks, d.timestamp);
+                if (bacAtDrink > peakBac) peakBac = bacAtDrink;
+            }
+            document.getElementById('stat-peak-bac').textContent = `${peakBac.toFixed(3)}%`;
+
+            const buckets = [];
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+
+            for (let i = rangeDays - 1; i >= 0; i--) {
+                const dayStartMs = todayStart.getTime() - (i * msPerDay);
+                const dayEndMs = dayStartMs + msPerDay;
+                const dayDrinks = appState.drinks.filter(d => d.timestamp >= dayStartMs && d.timestamp < dayEndMs);
+                const stdCount = dayDrinks.reduce((sum, d) => sum + (calcAlcoholGrams(d.volumeMl, d.abv, d.qty || 1) / STANDARD_DRINK_GRAMS), 0);
+                const labelDate = new Date(dayStartMs);
+                buckets.push({
+                    dateLabel: `${labelDate.getMonth() + 1}/${labelDate.getDate()}`,
+                    dayShort: labelDate.toLocaleDateString([], { weekday: 'narrow' }),
+                    stdCount
+                });
+            }
+
+            const totalRangeStd = buckets.reduce((s, b) => s + b.stdCount, 0);
+            const avgPerDay = totalRangeStd / rangeDays;
+            document.getElementById('chart-subtitle').textContent = `Standard drinks per day (Last ${rangeDays} days)`;
+            document.getElementById('chart-avg-label').textContent = `Avg: ${avgPerDay.toFixed(1)}/d`;
+
+            const maxVal = Math.max(4, ...buckets.map(b => b.stdCount));
+            const chartEl = document.getElementById('history-bar-chart');
+            const labelsEl = document.getElementById('history-chart-labels');
+
+            chartEl.innerHTML = buckets.map(b => {
+                const heightPct = Math.max(4, Math.round((b.stdCount / maxVal) * 100));
+                const barColor = b.stdCount === 0
+                    ? 'bg-slate-800/70'
+                    : b.stdCount > 4
+                        ? 'bg-rose-500'
+                        : 'bg-amber-400';
+                return `
+                    <div class="flex-1 h-full flex flex-col justify-end items-center group relative">
+                        <span class="opacity-0 group-hover:opacity-100 transition text-[9px] font-mono text-white bg-slate-800 px-1.5 py-0.5 rounded mb-1 pointer-events-none whitespace-nowrap z-10">
+                            ${b.dateLabel}: ${b.stdCount.toFixed(1)}
+                        </span>
+                        <div style="height: ${heightPct}%" class="w-full rounded-t-md ${barColor} transition-all duration-300"></div>
+                    </div>
+                `;
+            }).join('');
+
+            const firstLabel = buckets[0]?.dateLabel || '';
+            const midLabel = buckets[Math.floor(buckets.length / 2)]?.dateLabel || '';
+            const lastLabel = 'Today';
+            labelsEl.innerHTML = `<span>${firstLabel}</span><span>${midLabel}</span><span>${lastLabel}</span>`;
+
+            const listContainer = document.getElementById('full-history-list');
+            const sortedAll = [...rangeDrinks].sort((a, b) => b.timestamp - a.timestamp);
+
+            if (sortedAll.length === 0) {
+                listContainer.innerHTML = `
+                    <p class="text-center text-xs text-slate-500 py-6">No drinks recorded in the last ${rangeDays} days.</p>
+                `;
+            } else {
+                listContainer.innerHTML = sortedAll.map(d => createDrinkCardHTML(d)).join('');
+            }
+        }
+
+        // =========================================================================
+        // USER PROFILE SETTINGS
+        // =========================================================================
+        function populateProfileForm() {
+            const p = appState.profile;
+            const sexRadio = document.querySelector(`input[name="sex"][value="${p.sex}"]`);
+            if (sexRadio) sexRadio.checked = true;
+
+            document.getElementById('profile-weight').value = p.weight;
+            document.getElementById('profile-age').value = p.age || '';
+            document.getElementById('profile-height').value = p.height || '';
+            document.getElementById('profile-use-watson').checked = !!p.useWatson;
+
+            updateWeightUnitUI(p.weightUnit);
+            updateHeightUnitUI(p.heightUnit);
+        }
+
+        function setWeightUnit(unit) {
+            const input = document.getElementById('profile-weight');
+            const val = parseFloat(input.value);
+            if (unit !== appState.profile.weightUnit && val > 0) {
+                input.value = unit === 'lbs'
+                    ? (val * 2.20462).toFixed(1)
+                    : (val / 2.20462).toFixed(1);
+            }
+            appState.profile.weightUnit = unit;
+            updateWeightUnitUI(unit);
+        }
+
+        function updateWeightUnitUI(unit) {
+            document.getElementById('weight-unit-kg').className = unit === 'kg'
+                ? 'px-3 py-1 rounded-lg bg-amber-500 text-slate-950 transition'
+                : 'px-3 py-1 rounded-lg text-slate-400 transition';
+            document.getElementById('weight-unit-lbs').className = unit === 'lbs'
+                ? 'px-3 py-1 rounded-lg bg-amber-500 text-slate-950 transition'
+                : 'px-3 py-1 rounded-lg text-slate-400 transition';
+        }
+
+        function setHeightUnit(unit) {
+            const input = document.getElementById('profile-height');
+            const val = parseFloat(input.value);
+            if (unit !== appState.profile.heightUnit && val > 0) {
+                input.value = unit === 'ft'
+                    ? (val / 2.54).toFixed(1)
+                    : Math.round(val * 2.54);
+            }
+            appState.profile.heightUnit = unit;
+            updateHeightUnitUI(unit);
+        }
+
+        function updateHeightUnitUI(unit) {
+            document.getElementById('height-unit-cm').className = unit === 'cm'
+                ? 'px-2 py-0.5 rounded bg-amber-500 text-slate-950'
+                : 'px-2 py-0.5 rounded text-slate-400';
+            document.getElementById('height-unit-ft').className = unit === 'ft'
+                ? 'px-2 py-0.5 rounded bg-amber-500 text-slate-950'
+                : 'px-2 py-0.5 rounded text-slate-400';
+        }
+
+        function saveUserProfile(event) {
+            event.preventDefault();
+            const sex = document.querySelector('input[name="sex"]:checked')?.value || 'male';
+            const weight = parseFloat(document.getElementById('profile-weight').value);
+            const age = parseInt(document.getElementById('profile-age').value) || null;
+            const height = parseFloat(document.getElementById('profile-height').value) || null;
+            const useWatson = document.getElementById('profile-use-watson').checked;
+
+            if (!weight || weight <= 0) {
+                showToast('Please enter a valid body weight.', 'error');
+                return;
+            }
+
+            appState.profile = {
+                ...appState.profile,
+                sex,
+                weight,
+                age,
+                height,
+                useWatson,
+                isConfigured: true
+            };
+
+            persistProfile();
+            updateDashboard();
+            updateLiveDrinkPreview();
+            switchTab('dashboard');
+            showToast('Body profile saved! BAC calibrated.', 'success');
+        }
+
+        // =========================================================================
+        // NAVIGATION, TOASTS & MODALS
+        // =========================================================================
+        function switchTab(tabName, focusManual = false) {
+            const tabs = ['dashboard', 'scan', 'history', 'profile'];
+            tabs.forEach(t => {
+                const section = document.getElementById(`tab-${t}`);
+                const navBtn = document.getElementById(`nav-${t}`);
+                if (t === tabName) {
+                    section.classList.remove('hidden');
+                    navBtn.className = 'nav-btn flex flex-col items-center justify-center py-2 px-1 rounded-2xl text-amber-400 bg-amber-500/10 transition';
+                } else {
+                    section.classList.add('hidden');
+                    navBtn.className = 'nav-btn flex flex-col items-center justify-center py-2 px-1 rounded-2xl text-slate-400 hover:text-slate-200 transition';
+                }
+            });
+
+            if (tabName === 'scan') {
+                setDefaultDateTimeInput();
+                updateLiveDrinkPreview();
+                if (focusManual) {
+                    setTimeout(() => document.getElementById('drink-name').focus(), 100);
+                }
+            } else if (tabName === 'history') {
+                renderHistoryTab();
+            } else if (tabName === 'profile') {
+                populateProfileForm();
+            } else if (tabName === 'dashboard') {
+                updateDashboard();
+            }
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const styles = {
+                success: 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200',
+                error: 'bg-rose-950/95 border-rose-500/50 text-rose-200',
+                info: 'bg-slate-900/95 border-slate-700 text-slate-100'
+            };
+            toast.className = `px-4 py-3 rounded-2xl border shadow-xl text-xs font-semibold backdrop-blur-md transition-all duration-300 transform translate-y-0 ${styles[type] || styles.info}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-8px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3200);
+        }
+
+        function showConfirmModal(title, message, onConfirm) {
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            const close = () => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            };
+
+            document.getElementById('confirm-cancel-btn').onclick = close;
+            document.getElementById('confirm-ok-btn').onclick = () => {
+                close();
+                onConfirm();
+            };
+        }
+
+        function escapeHTML(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        // =========================================================================
+        // EXPOSE FUNCTIONS TO GLOBAL WINDOW FOR INLINE EVENT HANDLERS
+        // =========================================================================
+        Object.assign(window, {
+            switchTab,
+            handleImageUpload,
+            resetScanner,
+            applyPreset,
+            setVolumeUnit,
+            updateLiveDrinkPreview,
+            handleLogDrink,
+            deleteDrink,
+            confirmClearAllHistory,
+            setHistoryRange,
+            setWeightUnit,
+            setHeightUnit,
+            saveUserProfile,
+            handleAccountButtonClick,
+            openAuthModal,
+            closeAuthModal,
+            continueAsGuest,
+            setAuthMode,
+            toggleAuthPasswordVisibility,
+            clearAuthError,
+            handleAuthSubmit,
+            saveGeminiApiKey,
+            toggleGeminiKeyVisibility,
+            exportDataJSON,
+            importDataJSON,
+            setLeaderboardMetric,
+            copyMyUsername,
+            handleAddFriend,
+            removeFriend,
+            refreshFriendsLeaderboard
+        });
+
+        // =========================================================================
+        // INITIALIZATION
+        // =========================================================================
+        window.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            populateProfileForm();
+
+            document.getElementById('settings-gemini-key').value = appState.geminiApiKey || '';
+
+            setDefaultDateTimeInput();
+            updateLiveDrinkPreview();
+            updateDashboard();
+            renderHistoryTab();
+            updateAccountUI();
+
+            initFirebaseServices();
+            refreshFriendsLeaderboard(false);
+
+            if (!appState.user && !localStorage.getItem(STORAGE_KEYS.GUEST_DISMISSED)) {
+                openAuthModal();
+            }
+
+            // Live real-time BAC ticker every 15 seconds
+            setInterval(updateDashboard, 15000);
+        });
+    </script>
+</body>
+</html>
